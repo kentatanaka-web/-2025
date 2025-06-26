@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# --- 設定項目 ---
+# X環境のEC2インスタンスID
+INSTANCE_X01_ID="i-xxxxxxxxxxxxxxxxx" # X-01のインスタンスIDに置き換えてください
+INSTANCE_X02_ID="i-yyyyyyyyyyyyyyyyy" # X-02のインスタンスIDに置き換えてください
+
+# ELBターゲットグループのARN
+TARGET_GROUP_ARN="arn:aws:elasticloadbalancing:ap-northeast-1:123456789012:targetgroup/my-target-group/xxxxxxxxxxxxxxxxx" # ターゲットグループのARNに置き換えてください
+
+# 変更後のインスタンスタイプ
+NEW_INSTANCE_TYPE="t3.medium" # 変更したいインスタンスタイプに置き換えてください (例: t3.medium, m5.large など)
+
+# AWS CLIでX環境にアクセスするためのプロファイル名 (aws configureで設定済みのもの)
+# プロファイルを設定していない場合は、--profileオプションを削除し、環境変数などで認証情報を設定してください。
+AWS_PROFILE="x_environment" 
+
+# 各処理の間隔時間 (秒)
+WAIT_TIME_SHORT=10 # 短い待機時間
+WAIT_TIME_LONG=60  # 長い待機時間
+
+echo "--- インスタンスタイプ変更自動化スクリプト開始 ---"
+
+# --- X-01の処理 ---
+echo "## X-01の処理を開始します"
+echo "インスタンスID: ${INSTANCE_X01_ID}"
+
+# 1. ELBターゲットグループからX-01を登録解除
+echo "1. ELBターゲットグループからX-01を登録解除中..."
+aws elbv2 deregister-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-01のELB登録解除に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-01のELB登録解除が完了しました。ELBの反映を待機します..."
+sleep ${WAIT_TIME_LONG} # ELBの反映を待つ
+
+# 2. X-01を停止
+echo "2. X-01を停止中..."
+aws ec2 stop-instances \
+    --instance-ids ${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-01の停止に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-01の停止リクエストを送信しました。停止完了を待機中..."
+aws ec2 wait instance-stopped \
+    --instance-ids ${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+echo "X-01が停止しました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 3. X-01のインスタンスタイプを変更
+echo "3. X-01のインスタンスタイプを ${NEW_INSTANCE_TYPE} に変更中..."
+aws ec2 modify-instance-attribute \
+    --instance-id ${INSTANCE_X01_ID} \
+    --instance-type "{\"Value\": \"${NEW_INSTANCE_TYPE}\"}" \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-01のインスタンスタイプ変更に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-01のインスタンスタイプが ${NEW_INSTANCE_TYPE} に変更されました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 4. X-01を開始
+echo "4. X-01を開始中..."
+aws ec2 start-instances \
+    --instance-ids ${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-01の開始に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-01の開始リクエストを送信しました。起動完了を待機中..."
+aws ec2 wait instance-running \
+    --instance-ids ${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+echo "X-01が起動しました。"
+sleep ${WAIT_TIME_LONG} # EC2インスタンスのヘルスチェック通過などを待つ
+
+# 5. ELBターゲットグループへX-01を登録
+echo "5. ELBターゲットグループへX-01を登録中..."
+aws elbv2 register-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_X01_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-01のELB登録に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-01がELBターゲットグループに登録されました。ヘルスチェック通過を待機中..."
+# ELBターゲットグループのヘルスチェック通過を確認するコマンド（オプション）
+# aws elbv2 describe-target-health --target-group-arn ${TARGET_GROUP_ARN} --profile ${AWS_PROFILE} --query 'TargetHealthDescriptions[?Target.Id==`'${INSTANCE_X01_ID}'`].TargetHealth.State'
+# 上記コマンドで 'healthy' になるまでループで待機することも可能ですが、ここではシンプルに固定時間待機します。
+sleep ${WAIT_TIME_LONG}
+echo "X-01の処理が完了しました。"
+
+echo "---"
+
+# --- X-02の処理 ---
+echo "## X-02の処理を開始します"
+echo "インスタンスID: ${INSTANCE_X02_ID}"
+
+# 6. ELBターゲットグループからX-02を登録解除
+echo "6. ELBターゲットグループからX-02を登録解除中..."
+aws elbv2 deregister-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-02のELB登録解除に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-02のELB登録解除が完了しました。ELBの反映を待機します..."
+sleep ${WAIT_TIME_LONG} # ELBの反映を待つ
+
+# 7. X-02を停止
+echo "7. X-02を停止中..."
+aws ec2 stop-instances \
+    --instance-ids ${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-02の停止に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-02の停止リクエストを送信しました。停止完了を待機中..."
+aws ec2 wait instance-stopped \
+    --instance-ids ${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+echo "X-02が停止しました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 8. X-02のインスタンスタイプを変更
+echo "8. X-02のインスタンスタイプを ${NEW_INSTANCE_TYPE} に変更中..."
+aws ec2 modify-instance-attribute \
+    --instance-id ${INSTANCE_X02_ID} \
+    --instance-type "{\"Value\": \"${NEW_INSTANCE_TYPE}\"}" \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-02のインスタンスタイプ変更に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-02のインスタンスタイプが ${NEW_INSTANCE_TYPE} に変更されました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 9. X-02を開始
+echo "9. X-02を開始中..."
+aws ec2 start-instances \
+    --instance-ids ${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-02の開始に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-02の開始リクエストを送信しました。起動完了を待機中..."
+aws ec2 wait instance-running \
+    --instance-ids ${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+echo "X-02が起動しました。"
+sleep ${WAIT_TIME_LONG} # EC2インスタンスのヘルスチェック通過などを待つ
+
+# 10. ELBターゲットグループへX-02を登録
+echo "10. ELBターゲットグループへX-02を登録中..."
+aws elbv2 register-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_X02_ID} \
+    --profile ${AWS_PROFILE}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: X-02のELB登録に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "X-02がELBターゲットグループに登録されました。ヘルスチェック通過を待機中..."
+sleep ${WAIT_TIME_LONG}
+echo "X-02の処理が完了しました。"
+
+echo "--- インスタンスタイプ変更自動化スクリプト完了 ---"
