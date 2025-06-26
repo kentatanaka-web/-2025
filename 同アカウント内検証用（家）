@@ -1,0 +1,171 @@
+#!/bin/bash
+
+# --- 設定項目 ---
+# EC2インスタンスID
+# このスクリプトは、A (KC-01) から実行し、B (X-01相当) と C (X-02相当) を操作します。
+INSTANCE_B_ID="i-xxxxxxxxxxxxxxxxx" # BのインスタンスIDに置き換えてください
+INSTANCE_C_ID="i-yyyyyyyyyyyyyyyyy" # CのインスタンスIDに置き換えてください
+
+# ELBターゲットグループのARN
+TARGET_GROUP_ARN="arn:aws:elasticloadbalancing:ap-northeast-1:123456789012:targetgroup/my-target-group/xxxxxxxxxxxxxxxxx" # BとCが関連付けられているターゲットグループのARNに置き換えてください
+
+# 変更後のインスタンスタイプ
+NEW_INSTANCE_TYPE="t3.medium" # 変更したいインスタンスタイプに置き換えてください (例: t3.medium, m5.large など)
+
+# 各処理の間隔時間 (秒)
+WAIT_TIME_SHORT=60 # 短い待機時間 (変更済)
+WAIT_TIME_LONG=300 # 長い待機時間 (変更済)
+
+echo "--- インスタンスタイプ変更自動化スクリプト開始 ---"
+
+# --- Bの処理 ---
+echo "## Bの処理を開始します"
+echo "インスタンスID: ${INSTANCE_B_ID}"
+
+# 1. ELBターゲットグループからBを登録解除
+echo "1. ELBターゲットグループからBを登録解除中..."
+aws elbv2 deregister-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_B_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: BのELB登録解除に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "BのELB登録解除が完了しました。ELBの反映を待機します (${WAIT_TIME_LONG}秒)..."
+sleep ${WAIT_TIME_LONG} # ELBの反映を待つ
+
+# 2. Bを停止
+echo "2. Bを停止中..."
+aws ec2 stop-instances \
+    --instance-ids ${INSTANCE_B_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Bの停止に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Bの停止リクエストを送信しました。停止完了を待機中..."
+aws ec2 wait instance-stopped \
+    --instance-ids ${INSTANCE_B_ID}
+echo "Bが停止しました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 3. Bのインスタンスタイプを変更
+echo "3. Bのインスタンスタイプを ${NEW_INSTANCE_TYPE} に変更中..."
+aws ec2 modify-instance-attribute \
+    --instance-id ${INSTANCE_B_ID} \
+    --instance-type "{\"Value\": \"${NEW_INSTANCE_TYPE}\"}"
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Bのインスタンスタイプ変更に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Bのインスタンスタイプが ${NEW_INSTANCE_TYPE} に変更されました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 4. Bを開始
+echo "4. Bを開始中..."
+aws ec2 start-instances \
+    --instance-ids ${INSTANCE_B_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Bの開始に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Bの開始リクエストを送信しました。起動完了を待機中..."
+aws ec2 wait instance-running \
+    --instance-ids ${INSTANCE_B_ID}
+echo "Bが起動しました。"
+sleep ${WAIT_TIME_LONG} # EC2インスタンスのヘルスチェック通過などを待つ
+
+# 5. ELBターゲットグループへBを登録
+echo "5. ELBターゲットグループへBを登録中..."
+aws elbv2 register-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_B_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: BのELB登録に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "BがELBターゲットグループに登録されました。ヘルスチェック通過を待機中 (${WAIT_TIME_LONG}秒)..."
+sleep ${WAIT_TIME_LONG}
+echo "Bの処理が完了しました。"
+
+echo "---"
+
+# --- Cの処理 ---
+echo "## Cの処理を開始します"
+echo "インスタンスID: ${INSTANCE_C_ID}"
+
+# 6. ELBターゲットグループからCを登録解除
+echo "6. ELBターゲットグループからCを登録解除中..."
+aws elbv2 deregister-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_C_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: CのELB登録解除に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "CのELB登録解除が完了しました。ELBの反映を待機します (${WAIT_TIME_LONG}秒)..."
+sleep ${WAIT_TIME_LONG} # ELBの反映を待つ
+
+# 7. Cを停止
+echo "7. Cを停止中..."
+aws ec2 stop-instances \
+    --instance-ids ${INSTANCE_C_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Cの停止に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Cの停止リクエストを送信しました。停止完了を待機中..."
+aws ec2 wait instance-stopped \
+    --instance-ids ${INSTANCE_C_ID}
+echo "Cが停止しました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 8. Cのインスタンスタイプを変更
+echo "8. Cのインスタンスタイプを ${NEW_INSTANCE_TYPE} に変更中..."
+aws ec2 modify-instance-attribute \
+    --instance-id ${INSTANCE_C_ID} \
+    --instance-type "{\"Value\": \"${NEW_INSTANCE_TYPE}\"}"
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Cのインスタンスタイプ変更に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Cのインスタンスタイプが ${NEW_INSTANCE_TYPE} に変更されました。"
+sleep ${WAIT_TIME_SHORT}
+
+# 9. Cを開始
+echo "9. Cを開始中..."
+aws ec2 start-instances \
+    --instance-ids ${INSTANCE_C_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: Cの開始に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "Cの開始リクエストを送信しました。起動完了を待機中..."
+aws ec2 wait instance-running \
+    --instance-ids ${INSTANCE_C_ID}
+echo "Cが起動しました。"
+sleep ${WAIT_TIME_LONG} # EC2インスタンスのヘルスチェック通過などを待つ
+
+# 10. ELBターゲットグループへCを登録
+echo "10. ELBターゲットグループへCを登録中..."
+aws elbv2 register-targets \
+    --target-group-arn ${TARGET_GROUP_ARN} \
+    --targets Id=${INSTANCE_C_ID}
+
+if [ $? -ne 0 ]; then
+    echo "エラー: CのELB登録に失敗しました。スクリプトを終了します。"
+    exit 1
+fi
+echo "CがELBターゲットグループに登録されました。ヘルスチェック通過を待機中 (${WAIT_TIME_LONG}秒)..."
+sleep ${WAIT_TIME_LONG}
+echo "Cの処理が完了しました。"
+
+echo "--- インスタンスタイプ変更自動化スクリプト完了 ---"
