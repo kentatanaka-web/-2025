@@ -3,11 +3,11 @@
 # --- 設定項目 ---
 # EC2インスタンスID
 # このスクリプトは、A (KC-01) から実行し、B (X-01相当) と C (X-02相当) を操作します。
-INSTANCE_B_ID="i-xxxxxxxxxxxxxxxxx" # BのインスタンスIDに置き換えてください
-INSTANCE_C_ID="i-yyyyyyyyyyyyyyyyy" # CのインスタンスIDに置き換えてください
+INSTANCE_B_ID="i-018f79596a2769312" # BのインスタンスIDに置き換えてください
+INSTANCE_C_ID="i-0a2fafd706ab7f5f0" # CのインスタンスIDに置き換えてください
 
 # ELBターゲットグループのARN
-TARGET_GROUP_ARN="arn:aws:elasticloadbalancing:ap-northeast-1:123456789012:targetgroup/my-target-group/xxxxxxxxxxxxxxxxx" # BとCが関連付けられているターゲットグループのARNに置き換えてください
+TARGET_GROUP_ARN="arn:aws:elasticloadbalancing:ap-northeast-1:779846810360:targetgroup/test/6fcfccd52d28cd82" # BとCが関連付けられているターゲットグループのARNに置き換えてください
 
 # 変更後のインスタンスタイプ
 NEW_INSTANCE_TYPE="t3.medium" # 変更したいインスタンスタイプに置き換えてください (例: t3.medium, m5.large など)
